@@ -77,6 +77,36 @@ func (r *Rebooking) Complete() error {
 	return nil
 }
 
+// Abort reverses an in-flight rebooking after a downstream confirmation
+// failure. The replacement reservation is released and the original
+// allocation is restored, returning the ledger to its pre-change state so
+// the capacity tally matches the surviving allocations.
+func (r *Rebooking) Abort() error {
+	if r == nil || r.ledger == nil || r.closed {
+		return domain.ErrState
+	}
+	r.ledger.mu.Lock()
+	defer r.ledger.mu.Unlock()
+	if r.replacement.ID != "" {
+		rep := r.ledger.allocations[r.replacement.ID]
+		if rep.Accepted {
+			r.ledger.reserved[rep.Request.LegID] -= rep.Request.WeightKg
+			rep.Accepted = false
+			rep.Reason = "aborted"
+			r.ledger.allocations[r.replacement.ID] = rep
+		}
+	}
+	orig := r.ledger.allocations[r.original.ID]
+	if !orig.Accepted {
+		r.ledger.reserved[orig.Request.LegID] += orig.Request.WeightKg
+		orig.Accepted = true
+		orig.Reason = ""
+		r.ledger.allocations[r.original.ID] = orig
+	}
+	r.closed = true
+	return nil
+}
+
 func (r *Rebooking) Original() Allocation {
 	if r == nil {
 		return Allocation{}

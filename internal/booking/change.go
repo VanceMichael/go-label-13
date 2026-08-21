@@ -45,19 +45,22 @@ func (s ChangeService) Change(ctx context.Context, request ChangeRequest) (Alloc
 	if err != nil {
 		return Allocation{}, err
 	}
-	replacement, err := rebooking.ReserveReplacement(request.Replacement, s.now())
+	replacement, err := rebooking.ReserveReplacement(request.Replacement, request.RequestedAt)
 	if err != nil {
+		_ = rebooking.Abort()
 		return Allocation{}, fmt.Errorf("reserve replacement: %w", err)
 	}
 	if err := s.Recorder.RecordChange(ctx, ChangeRecord{
 		OriginalID:    rebooking.Original().ID,
 		ReplacementID: replacement.ID,
 		RequestedBy:   request.RequestedBy,
-		ChangedAt:     s.now(),
+		ChangedAt:     request.RequestedAt,
 	}); err != nil {
+		_ = rebooking.Abort()
 		return Allocation{}, fmt.Errorf("record booking change: %w", err)
 	}
 	if err := rebooking.Complete(); err != nil {
+		_ = rebooking.Abort()
 		return Allocation{}, fmt.Errorf("complete booking change: %w", err)
 	}
 	return replacement, nil
